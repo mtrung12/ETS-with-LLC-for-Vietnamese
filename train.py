@@ -66,7 +66,7 @@ if __name__ == '__main__':
                 scores, select, HS, pred_ext, pred_doc, rand_idx = [], [], [], [], [], []
                 for i, (sents, budget) in enumerate(zip(sentences_list, budgets)):
                     with torch.no_grad():
-                        s, sel, h, pe, pd, ri = model(sents, batch['lengths_list'][i], budget.item())   (list gốc)
+                        s, sel, h, pe, pd, ri = model(sents, batch['lengths_list'][i], budget.item())   
                     scores.append(s); select.append(sel); HS.append(h); pred_ext.append(pe); pred_doc.append(pd); rand_idx.append(ri)
 
                 HS = torch.stack(HS).to(device)
