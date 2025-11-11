@@ -38,6 +38,9 @@ class SyntheticKnapsackDataset(Dataset):
         )
 
 def train_knapsack(args):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+
     print("Generating synthetic data...")
     dataset = SyntheticKnapsackDataset(
         num_samples=args.num_samples,
@@ -51,7 +54,7 @@ def train_knapsack(args):
     train_loader = DataLoader(train_ds, batch_size=64, shuffle=True)
     val_loader = DataLoader(val_ds, batch_size=64)
 
-    model = KnapsackTransformer(d_model=768, nhead=8, num_layers=8)
+    model = KnapsackTransformer(d_model=768, nhead=8, num_layers=8).to(device)
     model.train()
     criterion = nn.BCELoss()
     optimizer = optim.Adam(model.parameters(), lr=1e-4)
@@ -61,6 +64,10 @@ def train_knapsack(args):
         model.train()
         train_loss = 0
         for scores, lengths, labels in tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} [Train]"):
+            scores = scores.to(device)
+            lengths = lengths.to(device)
+            labels = labels.to(device)
+            
             optimizer.zero_grad()
             outputs = model(scores, lengths)
             loss = criterion(outputs, labels)
@@ -73,6 +80,10 @@ def train_knapsack(args):
         val_loss = 0
         with torch.no_grad():
             for scores, lengths, labels in tqdm(val_loader, desc=f"Epoch {epoch+1}/{args.epochs} [Val]"):
+                scores = scores.to(device)
+                lengths = lengths.to(device)
+                labels = labels.to(device)
+
                 outputs = model(scores, lengths)
                 loss = criterion(outputs, labels)
                 val_loss += loss.item()
