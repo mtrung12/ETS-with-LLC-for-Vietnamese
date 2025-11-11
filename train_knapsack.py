@@ -10,6 +10,7 @@ from utils import knapsack_dp
 import argparse
 import os
 from torch.amp import autocast, GradScaler
+from underthesea import sent_tokenize, word_tokenize
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -40,15 +41,26 @@ def knapsack_collate_fn(batch):
     )
 
 class SyntheticKnapsackDataset(Dataset):
-    def __init__(self, num_samples=1_000_000, avg_sent=20, avg_len=25):
-        self.budgets = [100, 150, 200, 250, 300]
+    def __init__(self, num_samples=6_000_000, real_df=None):
+        self.budgets = [0.4, 0.6, 0.8]  # ratio
         self.data = []
+        if real_df is not None:
+            lengths_list = []
+            for text in real_df['Text']:
+                sents = sent_tokenize(text)
+                lengths_list.extend([len(word_tokenize(s)) for s in sents])
+            self.length_mean = np.mean(lengths_list)
+            self.length_std = np.std(lengths_list)
+        else:
+            self.length_mean, self.length_std = 25, 10
+
         for _ in range(num_samples):
-            n = max(3, np.random.poisson(avg_sent))
-            lengths = np.random.gamma(2, avg_len / 2, n).astype(np.float32)
-            scores = np.random.uniform(0, 1, n).astype(np.float32)
+            n = max(3, np.random.poisson(self.length_mean))
+            lengths = np.random.gamma(2, self.length_std/2, n).astype(np.float32)
+            scores = np.random.beta(2, 5, n).astype(np.float32)
             scores /= (scores.sum() + 1e-8)
-            budget = random.choice(self.budgets)
+            ratio = random.choice(self.budgets)
+            budget = int(ratio * lengths.sum())
             label = np.array(knapsack_dp(scores.tolist(), lengths.tolist(), budget), dtype=np.float32)
             self.data.append((scores, lengths, label))
 
