@@ -1,0 +1,9 @@
+model:
+  use_knapsack: true
+training:
+  epochs: 10
+  lr: 1e-5
+  batch_size: 4
+  ratios: [0.4, 0.6, 0.8]  # Compression ratios for random selection in training
+dataset:
+  path: data/dataset.csv
