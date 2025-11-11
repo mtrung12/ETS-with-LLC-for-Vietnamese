@@ -48,6 +48,7 @@ def collate_fn(batch):
     return {
         'sentences_list': sentences_list,
         'lengths': lengths_padded,
+        'lengths_list': lengths_list,
         'lengths_mask': lengths_mask,
         'total_syllables': total_syllables,
         'gold_list': gold_list
