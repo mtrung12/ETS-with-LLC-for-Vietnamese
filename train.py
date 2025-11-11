@@ -26,7 +26,7 @@ def compute_loss(HS, pred_ext, pred_doc, rand_idx, select):
     return L_rest + L_doc
 
 if __name__ == '__main__':
-    with open('config.yaml') as f:
+    with open('configs.yaml') as f:
         cfg = yaml.safe_load(f)
 
     model = LearnableSumm(
