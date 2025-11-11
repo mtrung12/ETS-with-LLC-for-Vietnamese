@@ -5,8 +5,8 @@ from torch.utils.data import Dataset, DataLoader, TensorDataset
 import numpy as np
 import random
 from tqdm import tqdm
-from src.models import KnapsackTransformer
-from src.utils import knapsack_dp
+from models import KnapsackTransformer
+from utils import knapsack_dp
 import argparse
 
 class SyntheticKnapsackDataset(Dataset):

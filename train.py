@@ -1,8 +1,8 @@
 import yaml
 import torch.optim as optim
-from src.models import LearnableSumm
-from src.dataset import get_dataloaders
-from src.trainer import train
+from models import LearnableSumm
+from dataset import get_dataloaders
+from trainer import train
 import argparse  # Added for command-line args
 
 if __name__ == '__main__':

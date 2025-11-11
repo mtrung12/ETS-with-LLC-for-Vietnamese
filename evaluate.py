@@ -1,7 +1,7 @@
 import argparse  # Added for command-line args
-from src.models import LearnableSumm
-from src.dataset import get_dataloaders
-from src.utils import extract_summary, compute_rouge
+from models import LearnableSumm
+from dataset import get_dataloaders
+from utils import extract_summary, compute_rouge
 import torch 
 
 if __name__ == '__main__':

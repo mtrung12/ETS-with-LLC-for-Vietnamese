@@ -1,7 +1,7 @@
 import numpy as np
 import torch
-from src.utils import knapsack_dp
-from src.models import KnapsackTransformer
+from utils import knapsack_dp
+from models import KnapsackTransformer
 from torch.utils.data import TensorDataset, DataLoader
 
 def generate_synthetic(num_samples=6000000, avg_sent=20, avg_len=20):
