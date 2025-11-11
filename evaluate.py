@@ -15,13 +15,11 @@ if __name__ == '__main__':
     parser.add_argument('--ratio', type=float, required=True, choices=[0.4, 0.6, 0.8])
     args = parser.parse_args()
 
-    # ĐỌC CONFIG
     with open(args.config) as f:
         cfg = yaml.safe_load(f)
 
     csv_path = cfg['dataset']['path']
-    batch_size = cfg['evaluation']['batch_size']  # ← DÙNG TỪ CONFIG
-
+    batch_size = cfg['evaluation']['batch_size'] 
     # Dataloader
     _, _, test_dl = get_dataloaders(csv_path=csv_path, batch_size=batch_size)
 

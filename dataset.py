@@ -3,6 +3,12 @@ from torch.utils.data import Dataset, DataLoader
 from underthesea import sent_tokenize, word_tokenize
 import pandas as pd
 from sklearn.model_selection import train_test_split
+import yaml 
+
+
+with open("configs.yaml", "r") as f:
+    config = yaml.safe_load(f)
+
 
 class SummDataset(Dataset):
     def __init__(self, df):
@@ -47,7 +53,7 @@ def collate_fn(batch):
         'gold_list': gold_list
     }
 
-def get_dataloaders(csv_path='dataset.csv', batch_size=64):
+def get_dataloaders(csv_path=config["dataset"]["path"], batch_size=64):
     df = pd.read_csv(csv_path)
     train_df, temp = train_test_split(df, test_size=0.2, random_state=42)
     val_df, test_df = train_test_split(temp, test_size=0.5, random_state=42)

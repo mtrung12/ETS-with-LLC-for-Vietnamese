@@ -3,7 +3,7 @@ model:
   knapsack_path: models/knapsack_pretrained.pth
 
 dataset:
-  path: dataset.csv
+  path: /kaggle/input/summary-vietnamese-shortened/dataset.csv
 
 training:
   epochs: 10
