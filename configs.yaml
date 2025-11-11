@@ -1,9 +1,15 @@
 model:
   use_knapsack: true
+  knapsack_path: models/knapsack_pretrained.pth
+
+dataset:
+  path: dataset.csv
+
 training:
   epochs: 10
-  lr: 1e-5
+  lr: 0.000001
   batch_size: 64
-  ratios: [0.4, 0.6, 0.8]  # Compression ratios for random selection in training
-dataset:
-  path: /kaggle/input/summary-vietnamese-shortened/dataset.csv
+  ratios: [0.4, 0.6, 0.8]
+
+evaluation:
+  batch_size: 8   
