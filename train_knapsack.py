@@ -9,9 +9,13 @@ from models import KnapsackTransformer
 from utils import knapsack_dp
 import argparse
 import os
+import pandas as pd
+from underthesea import sent_tokenize, word_tokenize
 from torch.amp import autocast, GradScaler
+import yaml
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 def knapsack_collate_fn(batch):
     scores, lengths, labels = zip(*batch)
@@ -20,6 +24,7 @@ def knapsack_collate_fn(batch):
     padded_lengths = []
     padded_labels = []
     masks = []
+
     for s, l, lbl in zip(scores, lengths, labels):
         n = s.shape[0]
         pad = max_n - n
@@ -32,6 +37,7 @@ def knapsack_collate_fn(batch):
         padded_lengths.append(l)
         padded_labels.append(lbl)
         masks.append(mask)
+
     return (
         torch.stack(padded_scores),
         torch.stack(padded_lengths),
@@ -39,29 +45,52 @@ def knapsack_collate_fn(batch):
         torch.stack(masks)
     )
 
+
 class SyntheticKnapsackDataset(Dataset):
-    def __init__(self, num_samples=1_000_000, avg_sent=20, avg_len=25):
+    def __init__(self, num_samples=1_000_000, dataset_path=None):
         self.data = []
-        self.ratios = [0.4, 0.6, 0.8]
+        self.ratios = [0.4, 0.6, 0.8] 
 
-        for _ in range(num_samples):
-            # Số câu: Poisson(Sent-512)
-            n = max(3, np.random.poisson(avg_sent))
+        if dataset_path is not None:
+            print(f"Loading dataset from {dataset_path} to compute real distribution...")
+            df = pd.read_csv(dataset_path)
+            all_lengths = []
+            for text in df['Text']:
+                sents = sent_tokenize(text)
+                lengths = [len(word_tokenize(s)) for s in sents]
+                all_lengths.extend(lengths)
+            length_mean = np.mean(all_lengths)
+            length_std = np.std(all_lengths)
+            print(f"Real distribution: mean_sentence_length = {length_mean:.2f}, std = {length_std:.2f}")
+        else:
+            length_mean, length_std = 23.0, 10.0
+            print("Using fallback: CNNDM distribution (mean_len ≈ 23, std ≈ 10)")
 
-            # Độ dài: Gamma(2, avg_len/2)
-            lengths = np.random.gamma(2, avg_len / 2, n).astype(np.float32)
+        print(f"Generating {num_samples:,} synthetic samples...")
+        for i in range(num_samples):
+            if i % 500_000 == 0 and i > 0:
+                print(f"  → {i:,}/{num_samples:,}")
 
-            # Score: Uniform -> normalize
+            # Số câu: Poisson(mean_sentence_count) -> mô phỏng Sent-512
+            # Dùng mean_length để ước lượng số câu trong 512 token
+            n = max(3, int(np.random.poisson(512 / length_mean)))
+
+            # Độ dài câu: Gamma(α=2, β=mean/2)
+            lengths = np.random.gamma(2, length_mean / 2, n).astype(np.float32)
+
+            # Score: Uniform(0,1) -> normalize
             scores = np.random.uniform(0, 1, n).astype(np.float32)
             scores /= (scores.sum() + 1e-8)
 
-            # Budget: ratio × total_length 
+            # Budget: ratio × total_length
             ratio = random.choice(self.ratios)
             budget = int(ratio * lengths.sum())
 
-            # DP
+            # DP Label
             label = np.array(knapsack_dp(scores.tolist(), lengths.tolist(), budget), dtype=np.float32)
             self.data.append((scores, lengths, label))
+
+        print("Synthetic data generation completed.")
 
     def __len__(self):
         return len(self.data)
@@ -74,15 +103,16 @@ class SyntheticKnapsackDataset(Dataset):
             torch.from_numpy(lbl)
         )
 
+
 def train_knapsack(args):
     print(f"Using device: {device}")
     os.makedirs(os.path.dirname(args.output_path), exist_ok=True)
 
     dataset = SyntheticKnapsackDataset(
         num_samples=args.num_samples,
-        avg_sent=args.avg_sent,
-        avg_len=args.avg_len
+        dataset_path=args.dataset_path  
     )
+
     train_size = int(0.95 * len(dataset))
     val_size = len(dataset) - train_size
     train_ds, val_ds = torch.utils.data.random_split(dataset, [train_size, val_size])
@@ -109,8 +139,10 @@ def train_knapsack(args):
     scaler = GradScaler()
 
     best_val_loss = float('inf')
+    best_matched_rate = 0.0
 
     for epoch in range(args.epochs):
+        # =================== TRAINING ===================
         model.train()
         train_loss = 0.0
         for scores, lengths, labels, masks in tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} [Train]"):
@@ -132,8 +164,12 @@ def train_knapsack(args):
 
         avg_train = train_loss / len(train_loader)
 
+        # =================== VALIDATION ===================
         model.eval()
         val_loss = 0.0
+        correct = 0
+        total = 0
+
         with torch.no_grad():
             for scores, lengths, labels, masks in tqdm(val_loader, desc=f"Epoch {epoch+1}/{args.epochs} [Val]"):
                 scores = scores.to(device, non_blocking=True)
@@ -147,21 +183,50 @@ def train_knapsack(args):
                     loss = (loss_per_elem * masks).sum() / masks.sum()
                 val_loss += loss.item()
 
-        avg_val = val_loss / len(val_loader)
-        print(f"Epoch {epoch+1}: Train Loss = {avg_train:.6f}, Val Loss = {avg_val:.6f}")
+                # Tính Matched Rate
+                pred = (logits.sigmoid() > 0.5).float()
+                pred_masked = pred * masks
+                label_masked = labels * masks
 
+                for i in range(pred.shape[0]):
+                    p = pred_masked[i][masks[i]].cpu().numpy()
+                    l = label_masked[i][masks[i]].cpu().numpy()
+                    if len(p) > 0 and np.array_equal(p, l):
+                        correct += 1
+                    if len(p) > 0:
+                        total += 1
+
+        avg_val = val_loss / len(val_loader)
+        matched_rate = correct / total if total > 0 else 0
+
+        print(f"Epoch {epoch+1}: "
+              f"Train Loss = {avg_train:.6f}, "
+              f"Val Loss = {avg_val:.6f}, "
+              f"Val Matched Rate = {matched_rate:.4%}")
+
+        # Lưu model tốt nhất theo Matched Rate
+        if matched_rate > best_matched_rate:
+            best_matched_rate = matched_rate
+            best_path = args.output_path.replace('.pth', '_best_match.pth')
+            torch.save(model.state_dict(), best_path)
+            print(f"New best model (Matched Rate: {matched_rate:.4%}) saved to {best_path}")
+
+        # Lưu model tốt nhất theo Val Loss
         if avg_val < best_val_loss:
             best_val_loss = avg_val
             torch.save(model.state_dict(), args.output_path)
-            print(f"New best model saved to {args.output_path}")
+            print(f"New best model (Val Loss: {avg_val:.6f}) saved to {args.output_path}")
+
 
 if __name__ == '__main__':
+    with open("configs.yaml", "r") as f:
+        config = yaml.safe_load(f)
     parser = argparse.ArgumentParser()
-    parser.add_argument('--num_samples', type=int, default=1_000_000)
-    parser.add_argument('--avg_sent', type=int, default=20)
-    parser.add_argument('--avg_len', type=int, default=25)
+    parser.add_argument('--num_samples', type=int, default=1_000_000, help='Number of synthetic samples')
+    parser.add_argument('--dataset_path', type=str, default=config["dataset"]["path"], help='Path to real dataset for distribution')
     parser.add_argument('--epochs', type=int, default=10)
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--output_path', type=str, default='models/knapsack_pretrained.pth')
     args = parser.parse_args()
+
     train_knapsack(args)
