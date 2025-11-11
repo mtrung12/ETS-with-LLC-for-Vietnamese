@@ -1,4 +1,3 @@
-# evaluate.py
 import argparse
 import torch
 from models import LearnableSumm
@@ -13,8 +12,8 @@ if __name__ == '__main__':
     parser.add_argument('--ratio', type=float, required=True, choices=[0.4, 0.6, 0.8])
     args = parser.parse_args()
 
-    _, _, test_dl = get_dataloaders()
-    model = LearnableSumm(use_knapsack=True, knapsack_path='knapsack_pretrained.pth').to(device)
+    _, _, test_dl = get_dataloaders(csv_path='dataset.csv', batch_size=1)
+    model = LearnableSumm(use_knapsack=True, knapsack_path='models/knapsack_pretrained.pth').to(device)
     model.load_state_dict(torch.load('model.pth', map_location=device))
     model.eval()
 
@@ -23,9 +22,9 @@ if __name__ == '__main__':
         for batch in test_dl:
             for item in batch:
                 budget = args.ratio * item['total_syllables']
-                pred = extract_summary(model.to('cpu'), item['sentences'], item['lengths'], budget)
+                pred = extract_summary(model, item['sentences'], item['lengths'], budget)
                 scores = compute_rouge(pred, item['gold'])
                 for k in rouge_sum:
                     rouge_sum[k] += scores[k].fmeasure
     n = len(test_dl.dataset)
-    print("ROUGE:", {k: round(v/n, 4) for k, v in rouge_sum.items()})
+    print({k: round(v/n, 4) for k, v in rouge_sum.items()})
