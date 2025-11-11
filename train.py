@@ -45,7 +45,7 @@ if __name__ == '__main__':
     )
     model = LearnableSumm(
         use_knapsack=cfg['model']['use_knapsack'],
-        knapsack_path=config["model"]["knapsack_path"]
+        knapsack_path=cfg["model"]["knapsack_path"]
     ).to(device)
     optimizer = optim.AdamW(model.parameters(), lr=cfg['training']['lr'])
     scaler = GradScaler()
