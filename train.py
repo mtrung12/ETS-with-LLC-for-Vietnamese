@@ -7,7 +7,7 @@ import argparse  # Added for command-line args
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', default='configs/base.yaml', help='Path to config file')
+    parser.add_argument('--config', default='configs.yaml', help='Path to config file')
     parser.add_argument('--ratio', type=float, default=None, help='Optional compression ratio for post-train testing (0.4, 0.6, 0.8)')
     args = parser.parse_args()
 
