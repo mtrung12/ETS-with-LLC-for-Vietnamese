@@ -13,35 +13,60 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 def compute_loss_batch(HS, pred_ext, pred_doc, rand_idx, select, mask):
     mask = mask.bool()
     batch_size = HS.shape[0]
+    device = HS.device
 
     # === L_rest: Rest-Ext ===
-    # pred_ext: [batch, max_sents, 768], chỉ lấy tại rand_idx
-    valid_rand = (rand_idx >= 0) & mask.any(dim=1)
-    if valid_rand.any():
-        pred_ext_valid = pred_ext[valid_rand][torch.arange(valid_rand.sum()), rand_idx[valid_rand]]
-        HS_at_rand = HS[valid_rand][torch.arange(valid_rand.sum()), rand_idx[valid_rand]]
-        pos_cos = F.cosine_similarity(pred_ext_valid, HS_at_rand, dim=1)
+    # Chỉ tính trên các document có ít nhất 1 câu được chọn và 1 câu không được chọn
+    has_selected = (select * mask).sum(1) > 0
+    has_unselected = ((1 - select) * mask).sum(1) > 0
+    valid_docs = has_selected & has_unselected  # Chỉ dùng document có cả selected + unselected
+
+    if not valid_docs.any():
+        L_rest = torch.tensor(0.0, device=device)
     else:
-        pos_cos = torch.tensor([], device=HS.device)
+        # Lọc các document hợp lệ
+        pred_ext_valid = pred_ext[valid_docs]
+        rand_idx_valid = rand_idx[valid_docs]
+        HS_valid = HS[valid_docs]
+        select_valid = select[valid_docs]
+        mask_valid = mask[valid_docs]
 
-    # Negative: random unselected
-    neg_cos_list = []
-    for i in range(batch_size):
-        if not valid_rand[i]: continue
-        unselected = (select[i] == 0) & mask[i]
-        if unselected.any():
-            neg_i = unselected.nonzero(as_tuple=True)[0]
-            neg_j = neg_i[torch.randint(0, len(neg_i), (1,))]
-            neg_cos_list.append(F.cosine_similarity(pred_ext[i, rand_idx[i]], HS[i, neg_j], dim=0))
-    neg_cos = torch.stack(neg_cos_list) if neg_cos_list else torch.tensor([], device=HS.device)
+        # pos_cos: similarity giữa pred_ext và HS tại rand_idx
+        pos_cos = F.cosine_similarity(
+            pred_ext_valid[torch.arange(len(rand_idx_valid)), rand_idx_valid],
+            HS_valid[torch.arange(len(rand_idx_valid)), rand_idx_valid],
+            dim=1
+        )
 
-    L_rest = (-pos_cos + neg_cos.abs()).mean() if len(pos_cos) > 0 else torch.tensor(0.0, device=HS.device)
+        # neg_cos: random unselected sentence
+        neg_cos = []
+        for i in range(len(pred_ext_valid)):
+            unselected = (select_valid[i] == 0) & mask_valid[i]
+            if unselected.any():
+                neg_j = unselected.nonzero(as_tuple=True)[0]
+                j = neg_j[torch.randint(0, len(neg_j), (1,))].item()
+                cos_sim = F.cosine_similarity(pred_ext_valid[i, rand_idx_valid[i]], HS_valid[i, j], dim=0)
+                neg_cos.append(cos_sim)
+        neg_cos = torch.stack(neg_cos) if neg_cos else torch.tensor([], device=device)
+
+        # Nếu vẫn rỗng (hiếm), bỏ qua
+        if len(neg_cos) == 0:
+            L_rest = torch.tensor(0.0, device=device)
+        else:
+            L_rest = (-pos_cos + neg_cos.abs()).mean()
 
     # === L_doc: Ext-Doc ===
+    # true_doc: mean của toàn bộ document
     true_doc = (HS * mask.unsqueeze(-1)).sum(1) / mask.sum(1, keepdim=True).clamp(min=1)
 
-    # pred_doc là mean của selected → đã tính đúng
-    pos_doc = F.cosine_similarity(pred_doc, true_doc, dim=1)
+    # pred_doc: mean của selected sentences
+    selected_mask = select * mask
+    has_selected = selected_mask.sum(1) > 0
+    pred_doc_mean = torch.zeros_like(true_doc)
+    if has_selected.any():
+        pred_doc_mean[has_selected] = (HS[has_selected] * selected_mask[has_selected].unsqueeze(-1)).sum(1) / selected_mask[has_selected].sum(1, keepdim=True)
+
+    pos_doc_cos = F.cosine_similarity(pred_doc_mean, true_doc, dim=1)
 
     # neg_doc: mean của unselected
     unselected_mask = (1 - select) * mask
@@ -49,9 +74,9 @@ def compute_loss_batch(HS, pred_ext, pred_doc, rand_idx, select, mask):
     neg_doc = torch.zeros_like(true_doc)
     if has_unselected.any():
         neg_doc[has_unselected] = (HS[has_unselected] * unselected_mask[has_unselected].unsqueeze(-1)).sum(1) / unselected_mask[has_unselected].sum(1, keepdim=True)
-
     neg_doc_cos = F.cosine_similarity(neg_doc, true_doc, dim=1).abs()
-    L_doc = (-pos_doc + neg_doc_cos).mean()
+
+    L_doc = (-pos_doc_cos + neg_doc_cos).mean()
 
     return L_rest + L_doc
 
