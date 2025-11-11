@@ -9,7 +9,7 @@ from models import KnapsackTransformer
 from utils import knapsack_dp
 import argparse
 import os
-from torch.cuda.amp import autocast, GradScaler
+from torch.amp import autocast, GradScaler
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -93,7 +93,7 @@ def train_knapsack(args):
     )
 
     model = KnapsackTransformer(d_model=768, nhead=8, num_layers=8).to(device)
-    criterion = nn.BCELoss(reduction='none')
+    criterion = nn.BCEWithLogitsLoss(reduction='none')
     optimizer = optim.Adam(model.parameters(), lr=1e-4)
     scaler = GradScaler()
 
@@ -109,9 +109,9 @@ def train_knapsack(args):
             masks = masks.to(device, non_blocking=True).bool()
 
             optimizer.zero_grad()
-            with autocast():
-                outputs = model(scores, lengths)
-                loss_per_elem = criterion(outputs, labels)
+            with autocast('cuda'):
+                logits = model(scores, lengths)
+                loss_per_elem = criterion(logits, labels)
                 loss = (loss_per_elem * masks).sum() / masks.sum()
 
             scaler.scale(loss).backward()
@@ -130,9 +130,9 @@ def train_knapsack(args):
                 labels = labels.to(device, non_blocking=True)
                 masks = masks.to(device, non_blocking=True).bool()
 
-                with autocast():
-                    outputs = model(scores, lengths)
-                    loss_per_elem = criterion(outputs, labels)
+                with autocast('cuda'):
+                    logits = model(scores, lengths)
+                    loss_per_elem = criterion(logits, labels)
                     loss = (loss_per_elem * masks).sum() / masks.sum()
                 val_loss += loss.item()
 
